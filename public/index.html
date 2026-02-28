@@ -1,1 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bardufoss–Senja | Ski Touring Risk Dashboard</title>
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<style>
+  :root {
+    --bg:      #0a0e14;
+    --surface: #111822;
+    --border:  #1e2c3a;
+    --accent:  #00c8ff;
+    --g1: #2ecc71; --g2: #a8d840; --g3: #f1c40f;
+    --g4: #e67e22; --g5: #e74c3c; --g6: #8e44ad;
+    --text:  #cdd6e0;
+    --muted: #5a7080;
+    --fd: 'Syne', sans-serif;
+    --fm: 'Space Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--fm); min-height: 100vh; overflow-x: hidden; }
+
+  /* HEADER */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px; border-bottom: 1px solid var(--border);
+    background: var(--surface); position: sticky; top: 0; z-index: 1000;
+    gap: 12px;
+  }
+  .logo { font-family: var(--fd); font-weight: 800; font-size: 1.15rem; color: #fff; letter-spacing: -.5px; line-height: 1.2; }
+  .logo span { color: var(--accent); }
+  .logo-sub { font-size: .58rem; color: var(--muted); }
+  .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+  #clock { font-size: .7rem; color: var(--accent); white-space: nowrap; }
+  #proxy-indicator {
+    font-size: .58rem; padding: 2px 8px; border-radius: 2px;
+    border: 1px solid var(--border); color: var(--muted);
+    white-space: nowrap;
+  }
+  #refresh-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    font-family: var(--fm); font-size: .6rem; padding: 3px 9px;
+    cursor: pointer; border-radius: 2px; transition: all .2s; white-space: nowrap;
+  }
+  #refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* DANGER BANNER */
+  #danger-banner {
+    display: flex; align-items: center; gap: 12px; padding: 10px 22px;
+    border-bottom: 1px solid var(--border); transition: all .4s; flex-wrap: wrap;
+    border-left: 4px solid var(--border);
+  }
+  .danger-label { font-family: var(--fd); font-size: .6rem; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  .danger-chip { display: flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 2px; font-size: .68rem; border: 1px solid; background: var(--surface); }
+  .danger-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+  /* MAIN LAYOUT */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 330px;
+    grid-template-rows: auto auto;
+    gap: 1px; background: var(--border);
+  }
+  #map-wrap { grid-row: 1 / 3; position: relative; }
+  #map { width: 100%; height: 520px; }
+  .map-credit { position: absolute; bottom: 8px; left: 8px; background: rgba(10,14,20,.88); border: 1px solid var(--border); padding: 2px 7px; font-size: .56rem; color: var(--muted); z-index: 900; pointer-events: none; }
+
+  .side-panel { background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+
+  /* WEATHER */
+  #weather-panel { padding: 14px; border-bottom: 1px solid var(--border); }
+  .section-title { font-family: var(--fd); font-size: .62rem; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 9px; }
+  .wx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .wx-card { background: var(--bg); border: 1px solid var(--border); padding: 8px; border-radius: 2px; }
+  .wx-lbl { font-size: .54rem; color: var(--muted); margin-bottom: 2px; letter-spacing: 1px; text-transform: uppercase; }
+  .wx-val { font-family: var(--fd); font-size: 1rem; font-weight: 600; color: #fff; }
+  .wx-u   { font-size: .58rem; color: var(--muted); margin-left: 2px; }
+  .wx-full { grid-column: 1/-1; }
+
+  /* AVALANCHE */
+  #avy-panel { padding: 14px; flex: 1; overflow-y: auto; min-height: 0; }
+  .avy-card { border: 1px solid var(--border); border-radius: 2px; margin-bottom: 8px; overflow: hidden; }
+  .avy-hdr { display: flex; align-items: center; justify-content: space-between; padding: 8px 11px; cursor: pointer; background: var(--bg); user-select: none; }
+  .avy-name { font-family: var(--fd); font-size: .76rem; font-weight: 600; color: #fff; }
+  .avy-sub  { font-size: .56rem; color: var(--muted); margin-top: 1px; }
+  .avy-badge { font-size: .6rem; font-weight: 700; padding: 2px 8px; border-radius: 2px; font-family: var(--fd); white-space: nowrap; }
+  .avy-body { padding: 10px 11px; font-size: .66rem; line-height: 1.7; display: none; border-top: 1px solid var(--border); }
+  .avy-body.open { display: block; }
+  .avy-tag { display: inline-block; background: rgba(0,200,255,.07); border: 1px solid rgba(0,200,255,.2); color: var(--accent); font-size: .58rem; padding: 2px 6px; border-radius: 2px; margin: 2px 2px 2px 0; }
+
+  /* BOTTOM STRIP */
+  #bottom-strip { grid-column: 1/-1; display: grid; grid-template-columns: repeat(4,1fr); gap: 1px; background: var(--border); border-top: 1px solid var(--border); }
+  .strip-card { background: var(--surface); padding: 13px 16px; }
+
+  /* FORECAST */
+  .fc-days { display: flex; gap: 5px; margin-top: 4px; }
+  .fc-day { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 2px; padding: 7px 3px; text-align: center; font-size: .56rem; }
+  .fc-day .fdl { color: var(--muted); margin-bottom: 2px; }
+  .fc-day .fdi { font-size: .9rem; margin-bottom: 2px; }
+  .fc-day .fdt { font-family: var(--fd); font-size: .78rem; font-weight: 600; color: #fff; }
+  .fc-day .fds { color: var(--accent); font-size: .56rem; margin-top: 2px; }
+
+  /* ROADS */
+  .road-item { padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); margin-bottom: 5px; }
+  .road-id   { font-family: var(--fd); font-size: .7rem; font-weight: 700; color: #fff; }
+  .road-desc { font-size: .58rem; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+  .pill { font-size: .54rem; padding: 1px 6px; border-radius: 2px; font-family: var(--fd); font-weight: 700; margin-top: 3px; display: inline-block; }
+  .pill-ok   { background: rgba(46,204,113,.12); color: var(--g1); border: 1px solid rgba(46,204,113,.25); }
+  .pill-warn { background: rgba(230,126,34,.10); color: var(--g4); border: 1px solid rgba(230,126,34,.25); }
+  .pill-crit { background: rgba(231,76,60,.10);  color: var(--g5); border: 1px solid rgba(231,76,60,.25); }
+
+  /* HAZARDS */
+  .haz-row { display: flex; align-items: flex-start; gap: 7px; margin-bottom: 7px; }
+  .haz-dot  { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+  .haz-lbl  { font-size: .63rem; color: #fff; line-height: 1.3; }
+  .haz-note { font-size: .57rem; color: var(--muted); margin-top: 1px; }
+
+  /* LINKS */
+  .src-link { font-size: .6rem; color: var(--muted); text-decoration: none; display: block; margin-bottom: 4px; transition: color .15s; }
+  .src-link:hover { color: var(--accent); }
+
+  /* UTILS */
+  .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; margin-right: 5px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-txt { font-size: .66rem; color: var(--muted); display: flex; align-items: center; }
+  .error-txt   { font-size: .66rem; color: var(--g5); line-height: 1.6; }
+
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  @media (max-width: 860px) {
+    .grid { grid-template-columns: 1fr; }
+    #map-wrap { grid-row: auto; }
+    #map { height: 260px; }
+    #bottom-strip { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 480px) {
+    #bottom-strip { grid-template-columns: 1fr; }
+    header { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">BARDUFOSS<span>–</span>SENJA</div>
+    <div class="logo-sub">Ski Touring Risk Dashboard · Troms, Norway</div>
+  </div>
+  <div class="header-right">
+    <div id="clock"></div>
+    <div id="proxy-indicator">⬤ Checking proxy…</div>
+    <button id="refresh-btn" onclick="loadAll()">⟳ Refresh</button>
+  </div>
+</header>
+
+<div id="danger-banner">
+  <div class="danger-label">Avalanche Danger</div>
+  <div id="danger-chips" style="display:flex;gap:8px;flex-wrap:wrap">
+    <div class="loading-txt"><span class="spinner"></span> Varsom NVE…</div>
+  </div>
+</div>
+
+<div class="grid">
+
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div class="map-credit">© Kartverket topo · NVE slope terrain</div>
+  </div>
+
+  <div class="side-panel">
+    <div id="weather-panel">
+      <div class="section-title">⛅ Weather — Bardufoss</div>
+      <div id="wx-content" class="loading-txt"><span class="spinner"></span> Open-Meteo…</div>
+    </div>
+    <div id="avy-panel">
+      <div class="section-title">❄ Avalanche Bulletins</div>
+      <div id="avy-content" class="loading-txt"><span class="spinner"></span> Varsom / NVE…</div>
+    </div>
+  </div>
+
+  <div id="bottom-strip">
+
+    <div class="strip-card">
+      <div class="section-title">📅 3-Day Forecast</div>
+      <div id="fc-content" class="loading-txt"><span class="spinner"></span></div>
+    </div>
+
+    <div class="strip-card">
+      <div class="section-title">🚗 Mountain Roads</div>
+      <div id="roads-content"></div>
+    </div>
+
+    <div class="strip-card">
+      <div class="section-title">⚠ Active Hazards</div>
+      <div id="haz-content" class="loading-txt"><span class="spinner"></span></div>
+    </div>
+
+    <div class="strip-card">
+      <div class="section-title">🔗 Sources</div>
+      <a class="src-link" href="https://www.varsom.no/en/avalanche-bulletins/" target="_blank">↗ Varsom — all bulletins</a>
+      <a class="src-link" href="https://www.varsom.no/en/snow/forecast/warning/Indre-Troms/" target="_blank">↗ Indre Troms bulletin</a>
+      <a class="src-link" href="https://www.varsom.no/en/snow/forecast/warning/S%C3%B8r-Troms/" target="_blank">↗ Sør-Troms bulletin</a>
+      <a class="src-link" href="https://www.vegvesen.no/en/traffic-information/traffic-information/" target="_blank">↗ Vegvesen — road info</a>
+      <a class="src-link" href="https://www.yr.no/en/forecast/daily-table/2-779652" target="_blank">↗ Yr.no — Bardufoss</a>
+      <a class="src-link" href="https://www.yr.no/en/forecast/daily-table/2-607437" target="_blank">↗ Yr.no — Senja</a>
+      <a class="src-link" href="https://skiguide.app" target="_blank">↗ SkiGuide.app — ATES routes</a>
+      <a class="src-link" href="https://www.regobs.no" target="_blank">↗ Regobs — observations</a>
+      <a class="src-link" href="https://xgeo.no" target="_blank">↗ Xgeo — expert terrain tool</a>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+// PROXY — auto-detect: same origin when hosted on CF Pages,
+//         fallback to direct fetch (works for Open-Meteo,
+//         may CORS-fail for Varsom when running locally).
+// ════════════════════════════════════════════════════════
+const IS_CLOUDFLARE = !['localhost','127.0.0.1',''].includes(location.hostname);
+const PROXY_BASE    = IS_CLOUDFLARE ? '' : ''; // same-origin — functions are at /varsom/, /openmeteo/, /yr/
+
+function proxyUrl(service, path, qs = '') {
+  // On CF Pages: /varsom/api/... hits functions/[[path]].js automatically
+  // Direct upstream fallback (for Open-Meteo which allows CORS):
+  const direct = {
+    openmeteo: 'https://api.open-meteo.com/v1',
+    varsom:    null, // no CORS, must use proxy
+    yr:        null,
+  };
+  if (IS_CLOUDFLARE || !direct[service]) {
+    return `/${service}/${path}${qs}`;
+  }
+  return `${direct[service]}/${path}${qs}`;
+}
+
+// Update proxy indicator
+const ind = document.getElementById('proxy-indicator');
+if (IS_CLOUDFLARE) {
+  ind.textContent = '⬤ Proxy active';
+  ind.style.color = 'var(--g1)';
+  ind.style.borderColor = 'rgba(46,204,113,.3)';
+} else {
+  ind.textContent = '⬤ Local mode (Varsom may fail)';
+  ind.style.color = 'var(--g4)';
+}
+
+// ════════════════════════════════════════════════════════
+// CONSTANTS
+// ════════════════════════════════════════════════════════
+const TODAY = new Date().toISOString().slice(0,10);
+
+const REGIONS = [
+  { id:3009, name:'Indre Troms', slug:'Indre-Troms', desc:'Bardufoss · Målselv · Øvre Dividal' },
+  { id:3010, name:'Sør-Troms',   slug:'Sør-Troms',   desc:'Senja · outer coastal terrain'       },
+];
+
+const DC = { 1:'#2ecc71', 2:'#a8d840', 3:'#f1c40f', 4:'#e67e22', 5:'#e74c3c' };
+const DL = { 1:'Low', 2:'Limited', 3:'Considerable', 4:'High', 5:'Very High' };
+const DD = {
+  1:'Natural triggering unlikely. Isolated steep terrain warrants caution.',
+  2:'Human triggering possible on steep slopes. Travel with care.',
+  3:'Human triggering likely. Natural avalanches possible. Serious hazard present.',
+  4:'Very likely human & natural triggering. Touring strongly discouraged.',
+  5:'EXTREME DANGER. Avoid all avalanche terrain. Life-threatening conditions.',
+};
+
+// ════════════════════════════════════════════════════════
+// CLOCK
+// ════════════════════════════════════════════════════════
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleString('en-GB',{timeZone:'Europe/Oslo',hour:'2-digit',minute:'2-digit',second:'2-digit',day:'2-digit',month:'short',year:'numeric'}) + ' Oslo';
+}, 1000);
+
+// ════════════════════════════════════════════════════════
+// MAP
+// ════════════════════════════════════════════════════════
+(function initMap() {
+  const map = L.map('map', { center:[69.15,18.2], zoom:9 });
+
+  L.tileLayer('https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png', {
+    attribution:'© <a href="https://kartverket.no">Kartverket</a>', maxZoom:19
+  }).addTo(map);
+
+  try {
+    L.tileLayer.wms('https://gis3.nve.no/map/services/SkredKart2/MapServer/WMSServer',{
+      layers:'0', format:'image/png', transparent:true, opacity:.28, attribution:'© NVE'
+    }).addTo(map);
+  } catch(e){}
+
+  const mkIcon = (color='#00c8ff') => L.divIcon({
+    html:`<div style="width:11px;height:11px;background:${color};border-radius:50%;border:2px solid rgba(255,255,255,.85);box-shadow:0 0 8px ${color}99"></div>`,
+    className:'', iconAnchor:[6,6]
+  });
+
+  [
+    {lat:69.050,lng:18.55, name:'Bardufoss Trailhead',   note:'Starting point. Check E6/Rv87 before departure.'},
+    {lat:69.150,lng:18.10, name:'Senja — Segla (639m)',  note:'ATES Class 3. Serious exposure. Strong wind loading on N/E slopes.'},
+    {lat:69.200,lng:17.95, name:'Senja — Hesten',        note:'Challenging couloirs. Avalanche prone N & E. Check Sør-Troms bulletin.'},
+    {lat:69.085,lng:18.35, name:'Målselv Upper Valley',  note:'Good touring. Access via Rv87. Watch for road ice.'},
+    {lat:69.175,lng:18.45, name:'Øvre Dividal plateau',  note:'Remote wilderness. 10–15km approach. Full self-rescue kit required.'},
+    {lat:69.290,lng:17.80, name:'Senja — Bergsbotn',     note:'Maritime snowpack. Higher wet avalanche risk in warm spells.'},
+    {lat:68.980,lng:18.70, name:'Altevatnet approach',   note:'Excellent high-alpine terrain. Very remote. Emergency shelter: none.'},
+    {lat:69.060,lng:18.00, name:'Senja N coast peaks',   note:'Short steep lines. Coastal exposure. Check wind & visibility.'},
+  ].forEach(z => {
+    L.marker([z.lat,z.lng],{icon:mkIcon()}).addTo(map)
+      .bindPopup(`<b style="color:#00c8ff;font-family:Syne,sans-serif">${z.name}</b><br><span style="font-size:.7rem;color:#cdd6e0">${z.note}</span>`);
+  });
+
+  L.rectangle([[68.8,18.0],[69.55,19.6]],{color:'#f1c40f',weight:1.5,fill:true,fillOpacity:.03,dashArray:'5 4'}).addTo(map)
+    .bindPopup('<b style="color:#f1c40f">Indre Troms</b><br>Avalanche warning region');
+  L.rectangle([[69.0,17.3],[69.45,18.1]],{color:'#00c8ff',weight:1.5,fill:true,fillOpacity:.03,dashArray:'5 4'}).addTo(map)
+    .bindPopup('<b style="color:#00c8ff">Senja / Sør-Troms</b><br>Avalanche warning region');
+})();
+
+// ════════════════════════════════════════════════════════
+// VARSOM AVALANCHE
+// ════════════════════════════════════════════════════════
+async function loadAvalanche() {
+  document.getElementById('danger-chips').innerHTML = '<div class="loading-txt"><span class="spinner"></span> Varsom…</div>';
+  document.getElementById('avy-content').innerHTML  = '<div class="loading-txt"><span class="spinner"></span> NVE API…</div>';
+
+  const results = await Promise.all(REGIONS.map(async region => {
+    try {
+      const url = proxyUrl('varsom', `api/AvalancheWarningByRegion/Simple/${region.id}/${TODAY}/${TODAY}`);
+      const res = await fetch(url, { headers:{Accept:'application/json'}, signal:AbortSignal.timeout(12000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return { region, w: data?.[0] || null };
+    } catch(e) {
+      return { region, w:null, err:e.message };
+    }
+  }));
+
+  // Banner chips
+  document.getElementById('danger-chips').innerHTML = results.map(r => {
+    const lvl = r.w?.DangerLevel;
+    const c   = lvl ? DC[lvl] : '#444';
+    const lbl = lvl ? `${lvl} — ${DL[lvl]}` : (r.err ? 'API error' : 'No bulletin');
+    return `<div class="danger-chip" style="border-color:${c}">
+      <div class="danger-dot" style="background:${c}"></div>
+      <span style="color:#ddd;font-size:.66rem">${r.region.name}</span>
+      <span style="color:${c};font-weight:700;font-size:.68rem">${lbl}</span>
+    </div>`;
+  }).join('');
+
+  const maxLvl = Math.max(...results.map(r => r.w?.DangerLevel||1));
+  const banner = document.getElementById('danger-banner');
+  banner.style.borderLeftColor = DC[maxLvl]||'var(--border)';
+  banner.style.background      = `${DC[maxLvl]||'#111822'}0C`;
+
+  // Detail cards
+  const avyEl = document.getElementById('avy-content');
+  avyEl.innerHTML = '';
+  results.forEach(r => {
+    const w   = r.w;
+    const lvl = w?.DangerLevel;
+    const c   = lvl ? DC[lvl] : '#888';
+    const probs = [1,2,3].map(i=>w?.[`AvalancheProblem${i}`]?.AvalancheProblemTypeName).filter(Boolean);
+
+    const card = document.createElement('div');
+    card.className = 'avy-card';
+    card.innerHTML = `
+      <div class="avy-hdr" onclick="this.nextElementSibling.classList.toggle('open')">
+        <div>
+          <div class="avy-name">${r.region.name}</div>
+          <div class="avy-sub">${r.region.desc}</div>
+        </div>
+        ${lvl
+          ? `<span class="avy-badge" style="background:${c};color:${lvl>=4?'#fff':'#111'}">${lvl} — ${DL[lvl]}</span>`
+          : `<span class="avy-badge" style="background:#1e2c3a;color:#5a7080">No data</span>`}
+      </div>
+      <div class="avy-body open">
+        ${lvl ? `<div style="color:${c};margin-bottom:6px;font-family:Syne,sans-serif;font-size:.68rem">${DD[lvl]}</div>` : ''}
+        ${w?.MainText ? `<div style="color:var(--text);margin-bottom:6px">${w.MainText}</div>` : ''}
+        ${w?.SnowSurface ? `<div style="color:var(--muted);font-size:.6rem;margin-bottom:4px">Surface: ${w.SnowSurface}</div>` : ''}
+        ${probs.length ? `<div style="margin-bottom:6px">${probs.map(p=>`<span class="avy-tag">${p}</span>`).join('')}</div>` : ''}
+        ${r.err ? `<div class="error-txt">⚠ ${r.err}${!IS_CLOUDFLARE?' — <em>Deploy to Cloudflare Pages to enable the proxy</em>':''}</div>` : ''}
+        <div style="margin-top:7px;font-size:.58rem;display:flex;gap:10px">
+          <a class="src-link" href="https://www.varsom.no/en/snow/forecast/warning/${r.region.slug}/" target="_blank">↗ Full bulletin</a>
+          <a class="src-link" href="https://www.regobs.no" target="_blank">↗ Observations</a>
+        </div>
+      </div>`;
+    avyEl.appendChild(card);
+  });
+}
+
+// ════════════════════════════════════════════════════════
+// OPEN-METEO (CORS-open, no proxy needed)
+// ════════════════════════════════════════════════════════
+async function loadWeather() {
+  document.getElementById('wx-content').innerHTML = '<div class="loading-txt"><span class="spinner"></span> Open-Meteo…</div>';
+  document.getElementById('fc-content').innerHTML = '<div class="loading-txt"><span class="spinner"></span></div>';
+
+  try {
+    const res = await fetch(
+      'https://api.open-meteo.com/v1/forecast?latitude=69.06&longitude=18.54' +
+      '&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,' +
+      'wind_speed_10m,wind_gusts_10m,wind_direction_10m,snowfall,snow_depth,precipitation' +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,snowfall_sum,wind_speed_10m_max' +
+      '&wind_speed_unit=ms&forecast_days=4&timezone=Europe%2FOslo',
+      { signal:AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    const c = d.current;
+
+    const tCol = c.temperature_2m < -15 ? '#93c5fd'
+               : c.temperature_2m < -5  ? '#a5f3fc'
+               : c.temperature_2m <  0  ? '#67e8f9'
+               : c.temperature_2m <  5  ? '#86efac'
+               : '#fca5a5';
+
+    document.getElementById('wx-content').innerHTML = `
+      <div class="wx-grid">
+        <div class="wx-card"><div class="wx-lbl">Temperature</div><div class="wx-val" style="color:${tCol}">${c.temperature_2m?.toFixed(1)}<span class="wx-u">°C</span></div></div>
+        <div class="wx-card"><div class="wx-lbl">Feels like</div><div class="wx-val">${c.apparent_temperature?.toFixed(1)}<span class="wx-u">°C</span></div></div>
+        <div class="wx-card"><div class="wx-lbl">Wind</div><div class="wx-val">${c.wind_speed_10m?.toFixed(1)}<span class="wx-u">m/s ${cDir(c.wind_direction_10m)}</span></div></div>
+        <div class="wx-card"><div class="wx-lbl">Gusts</div><div class="wx-val" style="color:${c.wind_gusts_10m>18?'#e67e22':c.wind_gusts_10m>12?'#f1c40f':'inherit'}">${c.wind_gusts_10m?.toFixed(1)}<span class="wx-u">m/s</span></div></div>
+        <div class="wx-card"><div class="wx-lbl">Snow depth</div><div class="wx-val" style="color:#7dd3fc">${c.snow_depth!=null?(c.snow_depth*100).toFixed(0):'—'}<span class="wx-u">cm</span></div></div>
+        <div class="wx-card"><div class="wx-lbl">Humidity</div><div class="wx-val">${c.relative_humidity_2m?.toFixed(0)}<span class="wx-u">%</span></div></div>
+        <div class="wx-card wx-full"><div class="wx-lbl">Conditions</div><div style="font-family:Syne,sans-serif;font-size:.85rem;color:#fff;margin-top:2px">${wmoTxt(c.weather_code)}</div></div>
+      </div>
+      <div style="margin-top:6px;font-size:.56rem;color:var(--muted)">Open-Meteo · 69.06°N 18.54°E · ${new Date(c.time+'Z').toLocaleTimeString('en-GB',{timeZone:'Europe/Oslo'})}</div>`;
+
+    document.getElementById('fc-content').innerHTML = '<div class="fc-days">' +
+      d.daily.time.slice(1,4).map((dt,i)=>{
+        const j=i+1;
+        return `<div class="fc-day">
+          <div class="fdl">${new Date(dt).toLocaleDateString('en-GB',{weekday:'short'})}</div>
+          <div class="fdi">${wmoIcon(d.daily.weather_code[j])}</div>
+          <div class="fdt">${d.daily.temperature_2m_max[j]?.toFixed(0)}° / ${d.daily.temperature_2m_min[j]?.toFixed(0)}°</div>
+          <div class="fds">❄ ${d.daily.snowfall_sum[j]?.toFixed(0)}cm</div>
+        </div>`;
+      }).join('') + '</div>';
+
+    buildHazards(c);
+
+  } catch(e) {
+    document.getElementById('wx-content').innerHTML = `<div class="error-txt">⚠ ${e.message}<br><a href="https://www.yr.no/en/forecast/daily-table/2-779652" target="_blank" class="src-link" style="margin-top:5px;display:block">↗ Yr.no Bardufoss</a></div>`;
+    document.getElementById('fc-content').innerHTML = `<a href="https://www.yr.no" class="src-link" target="_blank">↗ Yr.no</a>`;
+    buildHazards(null);
+  }
+}
+
+// ════════════════════════════════════════════════════════
+// ROADS
+// ════════════════════════════════════════════════════════
+function loadRoads() {
+  const roads = [
+    {id:'E6',   desc:'Nordkjosbotn → Bardufoss. Main artery, ploughed.',         s:'ok'},
+    {id:'E8',   desc:'Bardufoss → Tromsø. Mountain sections, ice risk.',           s:'ok'},
+    {id:'Rv87', desc:'Bardufoss → Setermoen. Often icy. Studded tyres required.', s:'warn'},
+    {id:'Fv83', desc:'Senja main road. Tunnel open. Check ferry schedule.',        s:'ok'},
+    {id:'Fv86', desc:'Senja — Bergsbotn spur. Narrow, check snow/ice.',           s:'warn'},
+  ];
+  const lbl = {ok:'Open',warn:'Caution',crit:'Closed'};
+  document.getElementById('roads-content').innerHTML =
+    roads.map(r=>`<div class="road-item">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="road-id">${r.id}</span>
+        <span class="pill pill-${r.s}">${lbl[r.s]}</span>
+      </div>
+      <div class="road-desc">${r.desc}</div>
+    </div>`).join('') +
+    `<div style="margin-top:6px;font-size:.58rem;color:var(--muted)">Live closures: <a class="src-link" style="display:inline" href="https://www.vegvesen.no/en/traffic-information/traffic-information/" target="_blank">↗ Vegvesen</a></div>`;
+}
+
+// ════════════════════════════════════════════════════════
+// HAZARDS
+// ════════════════════════════════════════════════════════
+function buildHazards(c) {
+  const hc = {ok:'var(--g1)',warn:'var(--g4)',crit:'var(--g5)',info:'var(--accent)'};
+  const hz = [
+    { lbl:'Wind-loading (leeward slopes)',  s:c?(c.wind_speed_10m>12?'crit':c.wind_speed_10m>7?'warn':'ok'):'ok', note:c?`${c.wind_speed_10m?.toFixed(1)} m/s from ${cDir(c.wind_direction_10m)}`:'—' },
+    { lbl:'Storm / polar low gusts',        s:c?(c.wind_gusts_10m>20?'crit':c.wind_gusts_10m>14?'warn':'ok'):'ok', note:c?`Gusts ${c.wind_gusts_10m?.toFixed(0)} m/s`:'—' },
+    { lbl:'New snow / loading',             s:c?(c.snowfall>2?'crit':c.snowfall>0.3?'warn':'ok'):'ok', note:c?`${c.snowfall?.toFixed(1)} cm/h`:'—' },
+    { lbl:'Freeze-thaw / melt crust',       s:c?(Math.abs(c.temperature_2m)<2?'warn':'ok'):'ok', note:c?`${c.temperature_2m?.toFixed(1)}°C — ${Math.abs(c.temperature_2m)<2?'near 0°C, watch for crust':'stable'}`:'—' },
+    { lbl:'Visibility / whiteout risk',     s:c?([71,73,75,77,85,86,95,96,99].includes(c.weather_code)?'warn':'ok'):'ok', note:wmoTxt(c?.weather_code??0) },
+    { lbl:'Daylight window',                s:'info', note:daylightNote() },
+    { lbl:'Safety gear',                    s:'info', note:'Beacon · probe · shovel · ATES map: skiguide.app' },
+  ];
+  document.getElementById('haz-content').innerHTML = hz.map(h=>
+    `<div class="haz-row"><div class="haz-dot" style="background:${hc[h.s]}"></div>
+    <div><div class="haz-lbl">${h.lbl}</div><div class="haz-note">${h.note}</div></div></div>`
+  ).join('');
+}
+
+function daylightNote() {
+  const m=new Date().getMonth()+1;
+  if(m<=1)  return 'Polar night ending — ~2–4h light';
+  if(m===2) return '~5–8h light. Plan early starts.';
+  if(m===3) return '~10–14h. Good touring window.';
+  if(m===4) return '~16–20h. Spring conditions.';
+  if(m>=5&&m<=7) return 'Midnight sun. 24h — watch wet snow PM.';
+  if(m>=9)  return 'Days shortening. Polar night approaching.';
+  return 'Check yr.no for sunrise/sunset.';
+}
+
+// ════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════
+function cDir(d) { return d!=null?['N','NE','E','SE','S','SW','W','NW'][Math.round(d/45)%8]:''; }
+function wmoTxt(c) {
+  return {0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Icy fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',61:'Light rain',63:'Rain',65:'Heavy rain',71:'Light snow',73:'Snow',75:'Heavy snow',77:'Snow grains',80:'Showers',81:'Showers',82:'Heavy showers',85:'Snow showers',86:'Heavy snow showers',95:'Thunderstorm',96:'Thunderstorm+hail',99:'Heavy T-storm'}[c]||`Code ${c}`;
+}
+function wmoIcon(c) {
+  if(c===0)return'☀️';if(c<=2)return'🌤';if(c===3)return'☁️';if(c<=48)return'🌫';if(c<=67)return'🌧';if(c<=77)return'❄️';if(c<=86)return'🌨';return'⛈';
+}
+
+// ════════════════════════════════════════════════════════
+// BOOT
+// ════════════════════════════════════════════════════════
+function loadAll() { loadAvalanche(); loadWeather(); loadRoads(); }
+loadAll();
+setInterval(loadAll, 30 * 60 * 1000);
+</script>
+</body>
+</html>
