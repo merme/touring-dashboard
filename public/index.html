@@ -283,8 +283,44 @@ setInterval(() => {
 // ════════════════════════════════════════════════════════
 // MAP
 // ════════════════════════════════════════════════════════
+
+// Approximate region polygons (GeoJSON-style coordinate pairs [lng, lat])
+// Indre Troms: covers Bardufoss, Målselv, Øvre Dividal
+const REGION_POLYS = {
+  3009: {
+    name: 'Indre Troms',
+    // [lat, lng] pairs for Leaflet
+    latlngs: [
+      [69.55,18.00],[69.55,19.60],[69.40,19.80],[69.20,19.60],
+      [68.95,19.20],[68.80,18.80],[68.80,18.00],[69.10,17.90],
+      [69.30,17.95],[69.55,18.00]
+    ]
+  },
+  3010: {
+    name: 'Sør-Troms / Senja',
+    // Senja island + coastal Sør-Troms mainland
+    latlngs: [
+      [69.00,17.30],[69.00,18.00],[69.10,17.90],[69.30,17.95],
+      [69.20,17.60],[69.45,17.50],[69.45,17.30],[69.30,17.10],
+      [69.10,17.20],[69.00,17.30]
+    ]
+  }
+};
+
+// Danger level → fill color (EAWS standard palette)
+const DANGER_FILL = {
+  1: '#2ecc71',  // Low       — green
+  2: '#a8d840',  // Limited   — yellow-green
+  3: '#f1c40f',  // Considerable — yellow
+  4: '#e67e22',  // High      — orange
+  5: '#e74c3c',  // Very High — red
+};
+
+let map;
+const dangerLayers = {}; // keyed by region id
+
 (function initMap() {
-  const map = L.map('map', { center:[69.15,18.2], zoom:9 });
+  map = L.map('map', { center:[69.15,18.2], zoom:9 });
 
   L.tileLayer('https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png', {
     attribution:'© <a href="https://kartverket.no">Kartverket</a>', maxZoom:19
@@ -292,12 +328,45 @@ setInterval(() => {
 
   try {
     L.tileLayer.wms('https://gis3.nve.no/map/services/SkredKart2/MapServer/WMSServer',{
-      layers:'0', format:'image/png', transparent:true, opacity:.28, attribution:'© NVE'
+      layers:'0', format:'image/png', transparent:true, opacity:.22, attribution:'© NVE'
     }).addTo(map);
   } catch(e){}
 
+  // Draw initial region polygons in neutral grey (will update once Varsom loads)
+  Object.entries(REGION_POLYS).forEach(([id, region]) => {
+    const poly = L.polygon(region.latlngs, {
+      color:       '#ffffff',
+      weight:      2,
+      opacity:     0.6,
+      fill:        true,
+      fillColor:   '#888888',
+      fillOpacity: 0.18,
+      dashArray:   null,
+    }).addTo(map);
+    poly.bindPopup(`<b style="font-family:Syne,sans-serif">${region.name}</b><br><span style="font-size:.7rem;color:#aaa">Loading danger level…</span>`);
+    dangerLayers[id] = poly;
+  });
+
+  // Add map legend
+  const legend = L.control({ position: 'bottomright' });
+  legend.onAdd = () => {
+    const div = L.DomUtil.create('div');
+    div.style.cssText = 'background:rgba(10,14,20,.88);border:1px solid #1e2c3a;padding:8px 10px;font-family:Space Mono,monospace;font-size:.6rem;color:#cdd6e0;line-height:1.8;border-radius:2px;';
+    div.innerHTML = `
+      <div style="font-family:Syne,sans-serif;font-weight:700;font-size:.62rem;letter-spacing:2px;color:#5a7080;margin-bottom:4px">AVALANCHE DANGER</div>
+      ${[1,2,3,4,5].map(l => `
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="width:12px;height:12px;background:${DANGER_FILL[l]};border-radius:2px;flex-shrink:0"></div>
+          <span>${l} — ${{1:'Low',2:'Limited',3:'Considerable',4:'High',5:'Very High'}[l]}</span>
+        </div>`).join('')}
+    `;
+    return div;
+  };
+  legend.addTo(map);
+
+  // Tour zone markers
   const mkIcon = (color='#00c8ff') => L.divIcon({
-    html:`<div style="width:11px;height:11px;background:${color};border-radius:50%;border:2px solid rgba(255,255,255,.85);box-shadow:0 0 8px ${color}99"></div>`,
+    html:`<div style="width:11px;height:11px;background:${color};border-radius:50%;border:2px solid rgba(255,255,255,.9);box-shadow:0 0 8px ${color}bb"></div>`,
     className:'', iconAnchor:[6,6]
   });
 
@@ -314,12 +383,43 @@ setInterval(() => {
     L.marker([z.lat,z.lng],{icon:mkIcon()}).addTo(map)
       .bindPopup(`<b style="color:#00c8ff;font-family:Syne,sans-serif">${z.name}</b><br><span style="font-size:.7rem;color:#cdd6e0">${z.note}</span>`);
   });
-
-  L.rectangle([[68.8,18.0],[69.55,19.6]],{color:'#f1c40f',weight:1.5,fill:true,fillOpacity:.03,dashArray:'5 4'}).addTo(map)
-    .bindPopup('<b style="color:#f1c40f">Indre Troms</b><br>Avalanche warning region');
-  L.rectangle([[69.0,17.3],[69.45,18.1]],{color:'#00c8ff',weight:1.5,fill:true,fillOpacity:.03,dashArray:'5 4'}).addTo(map)
-    .bindPopup('<b style="color:#00c8ff">Senja / Sør-Troms</b><br>Avalanche warning region');
 })();
+
+// Called after Varsom data loads — updates polygon fill colors
+function updateMapDanger(results) {
+  results.forEach(r => {
+    const layer = dangerLayers[r.region.id];
+    if (!layer) return;
+    const lvl   = r.w?.DangerLevel;
+    const color = lvl ? DANGER_FILL[lvl] : '#888888';
+    const label = lvl ? DL[lvl] : 'No data';
+    const probs = lvl ? [1,2,3].map(i=>r.w?.[`AvalancheProblem${i}`]?.AvalancheProblemTypeName).filter(Boolean) : [];
+
+    layer.setStyle({
+      fillColor:   color,
+      fillOpacity: lvl ? 0.30 + (lvl * 0.06) : 0.12, // more opaque = more danger
+      color:       color,
+      weight:      2.5,
+      opacity:     0.9,
+    });
+
+    layer.setPopupContent(`
+      <div style="font-family:Syne,sans-serif;font-weight:700;font-size:.85rem;color:${color}">${r.region.name}</div>
+      <div style="font-size:.7rem;color:#aaa;margin-bottom:5px">${r.region.desc}</div>
+      ${lvl ? `
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+          <div style="width:10px;height:10px;background:${color};border-radius:2px"></div>
+          <b style="color:${color};font-size:.78rem">Level ${lvl} — ${label}</b>
+        </div>
+        <div style="font-size:.68rem;color:#cdd6e0;line-height:1.5;margin-bottom:5px">${DD[lvl]}</div>
+        ${probs.length ? `<div style="font-size:.62rem;color:#00c8ff">${probs.join(' · ')}</div>` : ''}
+        <div style="margin-top:6px;font-size:.6rem">
+          <a href="https://www.varsom.no/en/snow/forecast/warning/${r.region.slug}/" target="_blank" style="color:#00c8ff">↗ Full bulletin</a>
+        </div>
+      ` : '<div style="font-size:.68rem;color:#e74c3c">No bulletin available today</div>'}
+    `);
+  });
+}
 
 // ════════════════════════════════════════════════════════
 // VARSOM AVALANCHE
@@ -356,6 +456,9 @@ async function loadAvalanche() {
   const banner = document.getElementById('danger-banner');
   banner.style.borderLeftColor = DC[maxLvl]||'var(--border)';
   banner.style.background      = `${DC[maxLvl]||'#111822'}0C`;
+
+  // Update map region overlays with live danger colors
+  updateMapDanger(results);
 
   // Detail cards
   const avyEl = document.getElementById('avy-content');
