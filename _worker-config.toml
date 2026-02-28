@@ -1,0 +1,13 @@
+# Cloudflare Pages configuration
+# This file is picked up automatically when you connect the GitHub repo to Cloudflare Pages.
+
+[build]
+  # No build step needed — pure static HTML + Pages Functions
+  command   = ""
+  publish   = "public"
+
+[functions]
+  # Pages Functions are in /functions — deployed automatically
+
+# Compatibility date for the Functions runtime
+compatibility_date = "2024-01-01"
